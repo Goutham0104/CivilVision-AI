@@ -5,7 +5,7 @@ risk priorities, and typed data models for structured visual inspections.
 """
 
 from dataclasses import dataclass, field, asdict
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 import json
 import re
 
