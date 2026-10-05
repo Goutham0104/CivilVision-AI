@@ -1,0 +1,27 @@
+# Python virtual environments & bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+ENV/
+
+# Streamlit secrets (DO NOT COMMIT SENSITIVE KEYS)
+.streamlit/secrets.toml
+
+# OS & IDE metadata
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log
+
+# Local SQLite databases (development inspection databases)
+*.db
+*.sqlite
+*.sqlite3
+*-journal
+*-wal
+*-shm
+
