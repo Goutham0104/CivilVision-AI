@@ -89,13 +89,35 @@ STRICT RULES:
 - Never cite unrequested code standards (like ASTM or ACI) or invent dimensions.
 """
 
-def build_chat_prompt(user_query: str, has_prior_analysis: bool = True) -> str:
+def build_chat_prompt(
+    user_query: str,
+    has_prior_analysis: bool = True,
+    has_image: bool = True,
+) -> str:
     """
     Wraps user follow-up questions with context and engineering confidence guardrails.
     Ensures concise, direct conversational responses for simple identification queries,
     while enforcing strict evidence-based confidence and physical verification for
     safety, risk, structural, and engineering queries.
     """
+    if not has_image:
+        return f"""
+The user has asked the following construction or site safety question (no site photograph attached):
+
+User Question: "{user_query}"
+
+Instructions for your response:
+1. CONVERSATIONAL DIRECTNESS & SCOPE:
+   - Provide a direct, concise, practical civil engineering and construction-focused response using clear bullet points.
+   - Do NOT output a formal 4-section report header or pretend that a photograph has been uploaded.
+   - Explicitly clarify that since no site photograph is provided, your response is based on standard civil engineering principles and construction safety practices.
+
+2. VISUAL-ONLY & NON-FABRICATION GUARDRAILS:
+   - Do NOT make unsupported visual claims or fabricate site-specific observations.
+   - Emphasize that actual site conditions, concrete strength, rebar placement, scaffold safety, and structural adequacy require physical on-site inspection and testing by qualified personnel.
+   - Never use arbitrary numerical confidence percentages.
+"""
+
     return f"""
 The user has asked the following question regarding the uploaded construction site photograph:
 
@@ -113,6 +135,7 @@ Instructions for your response:
    - Do NOT invent specific codes (e.g. ACI, ASTM, BS), bar sizes, concrete grades, or exact dimensions unless supplied by the user.
    - Never use arbitrary numerical percentages (e.g. no 95%, 80%).
 """
+
 
 SUMMARY_GENERATION_PROMPT = """
 Generate a formal visual inspection summary report based on the construction site photograph and the CivilVision AI Evidence-Based Confidence Framework.

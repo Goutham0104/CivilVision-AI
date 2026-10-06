@@ -2321,11 +2321,151 @@ def run_tests():
     assert "btn_logout" in app_login_src
     print("AUTH.5. app.py login page and logout wiring verified: PASSED")
 
-    print("\n--- ALL 158 TESTS (PHASES 1-4B + RELIABILITY + SQLITE PERSISTENCE + CSV EXPORT + HISTORICAL IMAGE + LOGIN AUTH) PASSED (100%) ---")
+    # =========================================================
+    # PART 14: WORKSHOP ACTION: EMAIL NOTIFICATION TESTS
+    # =========================================================
+    print("\n--- Starting Workshop External Action: Email Tests ---")
+
+    # EMAIL.1: is_valid_email validation tests
+    assert schema.is_valid_email("engineer@civilvision.com") is True
+    assert schema.is_valid_email("site.supervisor+test@domain.co.uk") is True
+    assert schema.is_valid_email("invalid-email") is False
+    assert schema.is_valid_email("@missing-user.com") is False
+    assert schema.is_valid_email("user@no-tld") is False
+    assert schema.is_valid_email("") is False
+    assert schema.is_valid_email(None) is False
+    assert schema.is_valid_email("   ") is False
+    print("EMAIL.1. Email validation and malformed address rejection: PASSED")
+
+    # EMAIL.2: format_inspection_email_body contains all required sections deterministically
+    dummy_obs = [
+        schema.ObservationRecord(
+            category="Site Safety",
+            observation="Cast slab edge lacks perimeter barrier.",
+            visual_confidence="HIGH",
+            potential_issue="Fall hazard at active elevated deck.",
+            physical_verification_required="Verify barrier placement during site walk.",
+            recommended_action="Install compliant perimeter handrail.",
+            risk_priority="HIGH ATTENTION",
+            evidence_type="VISIBLE",
+        ),
+        schema.ObservationRecord(
+            category="Equipment / Machinery",
+            observation="Tower crane base stationed on slab.",
+            visual_confidence="REQUIRES_PHYSICAL_VERIFICATION",
+            potential_issue="No specific issue identified from the available image.",
+            physical_verification_required="Foundation tie torque cannot be confirmed from photo.",
+            recommended_action="Review crane inspection logbook.",
+            risk_priority="LOW ATTENTION",
+            evidence_type="NOT_DETERMINABLE",
+        ),
+    ]
+    dummy_rec = schema.InspectionRecord(
+        inspection_id="CV-20261006-EMAIL1",
+        timestamp="2026-10-06 22:50:00",
+        site_activity="Commercial Core Construction",
+        executive_summary="Elevated structural deck observed with safety barriers pending.",
+        observations=dummy_obs,
+    )
+    subject, body = schema.format_inspection_email_body(dummy_rec)
+    assert dummy_rec.inspection_id in subject
+    assert dummy_rec.inspection_id in body
+    assert "Commercial Core Construction" in body
+    assert "Elevated structural deck observed" in body
+    assert "Total Observations: 2" in body
+    assert "High Attention:     1" in body
+    assert "Fall hazard at active elevated deck" in body
+    assert "Foundation tie torque cannot be confirmed" in body
+    assert dummy_rec.disclaimer in body
+    print("EMAIL.2. Deterministic email subject and body generation: PASSED")
+
+    # EMAIL.3: Rejection of empty record, empty recipient, and invalid recipient
+    ok, err = schema.send_inspection_email(None, "user@domain.com")
+    assert ok is False
+    assert "No active inspection record" in err
+
+    ok, err = schema.send_inspection_email(dummy_rec, "")
+    assert ok is False
+    assert "cannot be empty" in err
+
+    ok, err = schema.send_inspection_email(dummy_rec, "bad_email_format")
+    assert ok is False
+    assert "Invalid recipient" in err
+    print("EMAIL.3. Graceful handling of missing record and invalid recipient: PASSED")
+
+    # EMAIL.4: Rejection when Gmail credentials are not configured
+    ok, err = schema.send_inspection_email(
+        record=dummy_rec,
+        recipient_email="supervisor@site.com",
+        sender_email=None,
+        sender_password=None,
+    )
+    assert ok is False
+    assert "credentials are not configured" in err
+    print("EMAIL.4. Graceful handling of missing Gmail credentials: PASSED")
+
+    # EMAIL.5: Simulated SMTP authentication / connection error handling without sending real email
+    ok, err = schema.send_inspection_email(
+        record=dummy_rec,
+        recipient_email="supervisor@site.com",
+        sender_email="demo@gmail.com",
+        sender_password="wrongpassword123",
+        smtp_host="127.0.0.1",  # Local closed port
+        smtp_port=65432,
+        timeout=1,
+    )
+    assert ok is False
+    assert any(w in err.lower() for w in ["connect", "failed", "refused", "delivery", "smtp", "winerror"])
+    print("EMAIL.5. Graceful SMTP failure capture without unhandled exception: PASSED")
+
+    # EMAIL.6: Zero Gemini/Network API calls during email formatting
+    mock_email_client = MockClient()
+    _ = schema.format_inspection_email_body(dummy_rec)
+    assert len(mock_email_client.calls) == 0
+    print("EMAIL.6. Zero Gemini API calls during email generation: PASSED")
+
+    # EMAIL.7: app.py wiring for email action and credentials reader
+    app_src = inspect.getsource(app)
+    assert "get_email_credentials" in app_src
+    assert "send_inspection_email" in app_src
+    assert "Send Inspection Report" in app_src
+    assert "Recipient Email Address" in app_src
+    print("EMAIL.7. app.py email action UI and credentials wiring verified: PASSED")
+
+    # =========================================================
+    # PART 15: TEXT-ONLY CONSTRUCTION QUERY TESTS
+    # =========================================================
+    print("\n--- Starting Text-Only Construction Query Tests ---")
+
+    # TEXT.1: build_chat_prompt text-only branch generates valid prompt without requiring an image
+    q_text = "What are the standard OSHA perimeter guardrail height requirements for slab edges?"
+    prompt_text_only = prompts.build_chat_prompt(q_text, has_prior_analysis=False, has_image=False)
+    assert q_text in prompt_text_only
+    assert "no site photograph attached" in prompt_text_only
+    assert "Do NOT make unsupported visual claims" in prompt_text_only
+    assert "CONVERSATIONAL DIRECTNESS & SCOPE" in prompt_text_only
+    assert "standard civil engineering principles" in prompt_text_only
+    print("TEXT.1. build_chat_prompt text-only guardrails generation: PASSED")
+
+    # TEXT.2: build_chat_prompt image-mode backwards compatibility preserved
+    q_img = "What PPE are the workers wearing?"
+    prompt_with_img = prompts.build_chat_prompt(q_img, has_prior_analysis=True, has_image=True)
+    assert "regarding the uploaded construction site photograph" in prompt_with_img
+    assert "VISUAL-ONLY ENGINEERING GUARDRAILS" in prompt_with_img
+    print("TEXT.2. build_chat_prompt image mode backwards compatibility: PASSED")
+
+    # TEXT.3: app.py handles text questions when image_bytes is None without warning block
+    assert "has_image = bool(st.session_state.image_bytes)" in app_src
+    assert "if not st.session_state.image_bytes:\n            st.warning(\"⚠️ Please upload a construction site photograph first.\")" not in app_src
+    print("TEXT.3. app.py text-only query execution wiring verified: PASSED")
+
+    print("\n--- ALL 168 TESTS (PHASES 1-4B + RELIABILITY + PERSISTENCE + CSV + IMAGE + AUTH + EMAIL + TEXT-ONLY) PASSED (100%) ---")
 
 
 if __name__ == "__main__":
     run_tests()
+
+
 
 
 

@@ -1289,3 +1289,144 @@ def parse_inspection_json(json_input: str) -> InspectionReport:
         observations=observations,
     )
 
+
+# ---------------------------------------------------------
+# Phase 4C / Workshop Action: Deterministic Email Dispatch
+# ---------------------------------------------------------
+EMAIL_REGEX = re.compile(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$")
+
+
+def is_valid_email(email: str) -> bool:
+    """Validates basic email structure safely without external libraries."""
+    if not email or not isinstance(email, str):
+        return False
+    email = email.strip()
+    if len(email) > 254 or len(email) < 5:
+        return False
+    return bool(EMAIL_REGEX.match(email))
+
+
+def format_inspection_email_body(record: InspectionRecord) -> Tuple[str, str]:
+    """
+    Builds a concise, professional plain-text and HTML email notification from an InspectionRecord.
+    Deterministic and 100% local (zero Gemini or external network calls).
+    """
+    subject = f"[CivilVision AI] Inspection Alert: {record.inspection_id} ({record.site_activity[:40]})"
+
+    obs_lines = []
+    for i, obs in enumerate(record.observations, 1):
+        obs_lines.append(
+            f"{i}. [{obs.risk_priority}] ({obs.category})\n"
+            f"   - Observation: {obs.observation}\n"
+            f"   - Potential Issue: {obs.potential_issue}\n"
+            f"   - Physical Verification: {obs.physical_verification_required}\n"
+            f"   - Recommended Action: {obs.recommended_action}"
+        )
+    obs_text = "\n\n".join(obs_lines) if obs_lines else "No specific observations recorded."
+
+    plain_text = (
+        f"CivilVision AI – Construction Site Visual Inspection Report\n"
+        f"===========================================================\n"
+        f"Inspection ID: {record.inspection_id}\n"
+        f"Date/Time:     {record.timestamp}\n"
+        f"Site Activity: {record.site_activity}\n\n"
+        f"EXECUTIVE SUMMARY:\n"
+        f"{record.executive_summary}\n\n"
+        f"RISK PRIORITY METRICS:\n"
+        f"- Total Observations: {record.total_observations}\n"
+        f"- High Attention:     {record.high_attention_count}\n"
+        f"- Medium Attention:   {record.medium_attention_count}\n"
+        f"- Low Attention:      {record.low_attention_count}\n\n"
+        f"KEY OBSERVATIONS & VERIFICATIONS:\n"
+        f"---------------------------------\n"
+        f"{obs_text}\n\n"
+        f"ENGINEERING NOTICE:\n"
+        f"{record.disclaimer}\n"
+    )
+
+    return subject, plain_text
+
+
+def send_inspection_email(
+    record: InspectionRecord,
+    recipient_email: str,
+    sender_email: Optional[str] = None,
+    sender_password: Optional[str] = None,
+    smtp_host: str = "smtp.gmail.com",
+    smtp_port: int = 465,
+    timeout: int = 15,
+) -> Tuple[bool, str]:
+    """
+    Sends an inspection summary via Gmail SMTP using Python's built-in smtplib and email modules.
+    Handles missing secrets, invalid email addresses, SMTP failures, and empty inspection data gracefully.
+    Does NOT make any Gemini calls.
+    """
+    import smtplib
+    from email.message import EmailMessage
+
+    # 1. Validate inspection data
+    if record is None:
+        return False, "No active inspection record available to send."
+
+    # 2. Validate recipient address
+    recipient = (recipient_email or "").strip()
+    if not recipient:
+        return False, "Recipient email address cannot be empty."
+    if not is_valid_email(recipient):
+        return False, f"Invalid recipient email address format: '{recipient}'."
+
+    # 3. Validate sender credentials
+    sender = (sender_email or "").strip()
+    password = (sender_password or "").strip()
+
+    if not sender or not password:
+        return (
+            False,
+            "Gmail credentials are not configured. Please add GMAIL_ADDRESS and GMAIL_APP_PASSWORD "
+            "to .streamlit/secrets.toml or Streamlit Community Cloud Secrets.",
+        )
+
+    if not is_valid_email(sender):
+        return False, f"Configured sender email address is invalid: '{sender}'."
+
+    # 4. Build message
+    try:
+        subject, body = format_inspection_email_body(record)
+
+        msg = EmailMessage()
+        msg["Subject"] = subject
+        msg["From"] = sender
+        msg["To"] = recipient
+        msg.set_content(body)
+
+        # 5. Dispatch via SMTP_SSL (port 465) or standard STARTTLS (port 587)
+        if smtp_port == 465:
+            with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=timeout) as server:
+                server.login(sender, password)
+                server.send_message(msg)
+        else:
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=timeout) as server:
+                server.ehlo()
+                server.starttls()
+                server.ehlo()
+                server.login(sender, password)
+                server.send_message(msg)
+
+        return True, f"Inspection report successfully emailed to {recipient}!"
+
+    except smtplib.SMTPAuthenticationError:
+        return (
+            False,
+            "SMTP Authentication failed. Please verify that GMAIL_ADDRESS and GMAIL_APP_PASSWORD "
+            "are correct. Make sure to use a 16-character Google App Password (not your primary password).",
+        )
+    except smtplib.SMTPConnectError as e:
+        return False, f"Failed to connect to SMTP server ({smtp_host}:{smtp_port}): {e}"
+    except smtplib.SMTPRecipientsRefused:
+        return False, f"Recipient email address was refused by server: {recipient}"
+    except (smtplib.SMTPException, OSError, TimeoutError) as e:
+        return False, f"SMTP delivery error: {str(e)}"
+    except Exception as e:
+        return False, f"Unexpected error dispatching email: {str(e)}"
+
+

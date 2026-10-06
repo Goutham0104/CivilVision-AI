@@ -1,463 +1,235 @@
-# 🏗️ CivilVision AI
+# 🏗️ CivilVision AI – AI-Powered Construction Site Visual Inspection & Reporting Assistant
 
-## AI-Powered Construction Site Visual Inspection & Reporting Assistant
-
-CivilVision AI is an AI-powered visual inspection and safety reporting assistant designed for civil engineering students, site supervisors, and inspection personnel.
-
-It uses the official Google GenAI Python SDK and multimodal Gemini vision models to analyze construction-site photographs, identify visible conditions, organize observations into structured inspection records, support conversational follow-up questions, and generate inspection reports.
-
-### 🚀 Live Demo
-
-**[Open CivilVision AI →](https://civilvision-ai-uthwmqib2x7dqdus2czctr.streamlit.app/)**
-
-### 🔐 Demo Login
-
-Use these credentials to access the deployed demonstration application:
-
-| Field | Value |
-|---|---|
-| Username | `admin` |
-| Password | `CivilVision2026!` |
+**CivilVision AI** is an intelligent visual inspection and safety reporting assistant tailored for civil engineering students, site supervisors, and inspection personnel. It leverages the official **Google GenAI Python SDK** and multimodal Gemini vision models to analyze visible conditions in construction site photographs, categorize observations into structured records, engage in conversational Q&A, and generate inspection reports.
 
 ---
 
-## 🚀 Project Overview
+## 🌟 Key Features Across Phases
 
-CivilVision AI transforms construction-site images into structured visual inspection reports containing:
+### Phase 1: Core Multimodal Inspection & Confidence Framework
+- **Primary & Fallback Engine**: `gemini-3.7-flash` (Primary) with automatic exponential backoff & jitter failover to `gemini-3.6-flash` (Fallback) on 503 high demand or socket aborts (`[WinError 10053]`).
+- **UI-Only Fallback Isolation**: Model notices are strictly UI-rendered and never injected into prompts or conversational history.
+- **Evidence-Based Confidence System**:
+  - 🟢 **HIGH VISUAL CONFIDENCE**: Directly visible, unobstructed elements with adequate resolution/lighting.
+  - 🟡 **MEDIUM VISUAL CONFIDENCE**: Distant or partially occluded observations with stated visual limitations.
+  - 🔍 **REQUIRES PHYSICAL VERIFICATION**: Mandatory category for parameters 2D photos cannot determine (concrete strength, rebar diameter/cover, scaffold anchorage, load capacity, code compliance).
+  - **No Numerical Scores**: Completely prohibits arbitrary percentage confidence scores (e.g., 95%).
+- **Conversational Directness**: Answers simple follow-up questions directly and concisely without repeating 4-section report headers.
 
-- Construction activity identification
-- Engineering observation categorization
-- Evidence classification
-- Visual confidence assessment
-- Risk-priority classification
-- Physical verification requirements
-- Recommended actions
-- Inspection history
-- Inspection comparison
-- PDF report export
-- CSV data export
-- Historical source-image viewing
-- Conversational follow-up analysis
-- Authentication-protected application access
+### Phase 2: Structured Construction Inspection
+- **9 Controlled Inspection Categories**:
+  1. `Structural / Concrete`
+  2. `Formwork & Shoring`
+  3. `Scaffolding`
+  4. `Site Safety`
+  5. `PPE`
+  6. `Equipment / Machinery`
+  7. `Materials`
+  8. `Housekeeping / Site Conditions`
+  9. `Work Progress`
+- **Structured Observation Schema**: Every observation contains:
+  - `category`
+  - `observation`
+  - `evidence_type` (`VISIBLE` | `INFERRED` | `NOT_DETERMINABLE`)
+  - `visual_confidence` (`HIGH` | `MEDIUM` | `REQUIRES_PHYSICAL_VERIFICATION`)
+  - `potential_issue`
+  - `physical_verification_required`
+  - `recommended_action`
+  - `risk_priority` (`HIGH ATTENTION` | `MEDIUM ATTENTION` | `LOW ATTENTION`)
+- **Interactive UI**:
+  - Executive summary card
+  - Attention level metric pills (🔴 High Attention, 🟡 Medium Attention, 🟢 Low Attention)
+  - Priority & Category interactive filtering
+  - High-contrast engineering observation cards
 
-The system is designed as a **preliminary visual screening and decision-support tool**, not as a replacement for professional engineering inspection.
+### Phase 3A: In-Memory Inspection History
+- **InspectionRecord Model**: Rich structured dataclass encapsulating `inspection_id`, timestamp, site activity, summary, observations, and image metadata.
+- **Unique Deterministic ID Generation**: Fast `CV-YYYYMMDD-XXXXXX` identifier format for every inspection.
+- **Sidebar History Drawer**: Quick navigation through past inspection sessions within the active session.
+- **Client-Side Filtering & Sorting**: Filter historical records by category, priority, and date without server re-computation.
+- **Zero API Footprint**: In-memory history operations make zero Gemini/external network calls.
 
----
+### Phase 3B: Inspection Comparison Engine
+- **Deterministic Delta Analysis**: Compare two inspection records side-by-side to track changes across site visits.
+- **Observation & Attention Metrics Diff**: Computes exact net changes in high, medium, and low attention counts.
+- **Category-by-Category Shift Tracking**: Pinpoints changes in observation counts for each of the 9 engineering categories.
+- **Neutral Change Summaries**: Factual, objective delta reporting without speculative claims.
+- **Zero API Cost**: 100% computed locally in Python.
 
-## ✨ Key Features
+### Phase 3C: Local Inspection Report Foundation
+- **Clean Report Representation**: Standardized `InspectionReportRepresentation` data model generated locally from stored inspection records.
+- **Category-Grouped Observations**: Observations logically grouped and prioritized for formal site reporting.
+- **Preserved Engineering Metadata**: Retains original IDs, timestamps, image attributes, and observation records without mutations.
+- **Interactive In-App Preview**: Collapsible, professional preview directly in the application interface.
+- **Deterministic & Offline**: Operates completely offline with zero API calls.
 
-### 🤖 1. Multimodal AI Inspection
+### Phase 3D: PDF Inspection Report Export
+- **One-Click Native PDF Generation**: Deterministic export engine producing professional civil inspection documents.
+- **Engineering-Grade Layout**: Clean typography, color-coded priority indicators, summary metrics table, and detailed observations.
+- **Built-in Engineering Disclaimer**: Prominently highlights visual screening scope and mandatory physical verification rules.
+- **Zero External Dependencies**: Pure Python byte-stream generation without requiring heavy external PDF rendering binaries.
+- **Zero Gemini Calls**: Operates on existing structured data in memory.
 
-- Construction-site image analysis using Gemini vision models
-- Primary and fallback model strategy
-- Automatic retry handling for temporary model/API failures
-- Evidence-based visual confidence classification
-- Conversational follow-up questions
-- Structured inspection generation
+### Phase 4A: Evidence & Inspection Attachments
+- **Evidence-Type Breakdown**: Precise accounting of `VISIBLE`, `INFERRED`, and `NOT_DETERMINABLE` evidence across all observations.
+- **Source Image Metadata Tracking**: Preserves filename, image dimensions (px), and file size (KB) without duplicating raw image bytes in history records.
+- **Missing Historical Image Graceful Fallback**: Clearly communicates when an image was not retained while keeping the structured inspection record fully accessible.
+- **Evidence Summary in PDF & Reports**: Embeds evidence-type distributions into exported reports and summaries.
 
-### 🏗️ 2. Structured Construction Inspection
+### Phase 4B: Workspace & Workflow Hardening
+- **Hardened Workspace Reset (`reset_current_workspace`)**: Clears transient upload and active analysis state while strictly preserving inspection history and application settings.
+- **Historical Inspection Selection (`select_historical_inspection`)**: Allows viewing past inspection records without mutating session history or generating duplicates.
+- **Zero Gemini Footprint**: All workspace resets and historical navigation occur completely offline without API usage.
 
-CivilVision AI organizes observations into nine controlled categories:
+### Reliability, API-Efficiency & Error Handling Hardening
+- **Input Validation & Corrupt Image Handling**: Validates uploaded images with PIL integrity verification (`verify()`); detects empty/zero-byte files and unsupported formats gracefully before sending requests.
+- **Stale State Prevention**: Replaces or uploads of new images invalidate transient structured observations, chat history, and active inspection IDs without triggering unintended Gemini analyses or mutating stored historical inspections.
+- **Robust Model Output Parsing (`parse_inspection_json`)**: Gracefully handles non-dict JSON payloads, markdown code fencing (````json` and ````), empty inputs, missing summary fields, and non-conforming observation items without crashing or inventing engineering data.
+- **Strict Evidence Boundaries**: Enforces controlled inspection categories, confidence levels, and risk priorities with safe engineering defaults; never invents dimensions, rebar diameters, concrete grades, or code compliance claims.
+- **Zero Gemini Call Guarantee**: Deterministically enforces that history retrieval, history filtering, inspection comparison, local report representation, PDF generation, workspace reset, and historical selection make zero network or Gemini calls.
+- **User-Facing Error Safety**: Hides raw tracebacks on API or PDF generation issues, delivering clear, actionable feedback to users.
 
-1. Structural / Concrete
-2. Formwork & Shoring
-3. Scaffolding
-4. Site Safety
-5. PPE
-6. Equipment / Machinery
-7. Materials
-8. Housekeeping / Site Conditions
-9. Work Progress
+### Persistent Local SQLite Inspection Storage
+- **Built-in SQLite Persistence Layer (`storage.py`)**: Stores inspections locally in `civilvision_inspections.db` using Python's standard `sqlite3` module. No PostgreSQL, cloud database, or Docker required.
+- **Normalized Relational Schema**: Persists inspections in `inspections` and individual observations in `observations` with a foreign-key relationship and cascade deletion.
+- **Ordered Observation Fidelity**: Preserves original sequence ordering of observation records via `sequence_order` column.
+- **Duplicate Protection**: Uses parameterized `ON CONFLICT(inspection_id)` upsert semantics to ensure the same inspection ID never creates duplicate rows in the database.
+- **Session State vs. Database Distinction**: Active workspace state lives in Streamlit `session_state`, while historical inspections are preloaded from and persisted to SQLite on creation.
+- **Workspace Reset Safety**: Workspace resets clear transient inputs and active analysis state while strictly preserving persisted database records.
+- **Clean Local Developer Reset**: Developers can reset the local database by deleting the `civilvision_inspections.db` file; the schema will reinitialize automatic### Structured CSV Inspection Data Export
+- **One-Click Native CSV Export**: Directly export structured site observations (`export_inspection_to_csv`) to standard CSV format for spreadsheet analysis (Excel, Google Sheets), BIM integration, and project management databases.
+- **11 Standardized Columns**: Exports `inspection_id`, `timestamp`, `site_activity`, `category`, `risk_priority`, `visual_confidence`, `evidence_type`, `observation`, `potential_issue`, `physical_verification_required`, and `recommended_action`.
+- **RFC 4180 Escaping**: Safely handles commas, double quotes, and multi-line strings in observation text using Python's standard `csv` library.
+- **Zero API Footprint**: Operates 100% locally from active and historical structured inspection records with zero Gemini or network calls.
 
-Each observation contains:
-
-- Category
-- Observation
-- Evidence type
-- Visual confidence
-- Potential issue
-- Physical verification requirement
-- Recommended action
-- Risk priority
-
-### 🔎 3. Evidence-Based Confidence
-
-The system distinguishes between:
-
-- 🟢 **HIGH** — Clearly visible evidence
-- 🟡 **MEDIUM** — Partially visible, distant, or limited evidence
-- 🔍 **REQUIRES PHYSICAL VERIFICATION** — Information that cannot reliably be determined from a 2D photograph
-
-The system avoids inventing engineering measurements, reinforcement details, material properties, or code-compliance claims.
-
-### 📚 4. Inspection History
-
-- Unique inspection IDs
-- Historical inspection navigation
-- Persistent SQLite storage
-- Category and priority filtering
-- Historical source-image restoration when available
-- Safe workspace reset
-- Local history operations without additional Gemini API calls
-
-### 🔄 5. Inspection Comparison
-
-Two inspection records can be compared to identify:
-
-- Changes in observation counts
-- Changes in attention levels
-- Category-level changes
-- Deterministic inspection differences
-
-Comparison is performed locally without additional Gemini API calls.
-
-### 📄 6. PDF Inspection Reports
-
-The application provides one-click PDF report generation containing:
-
-- Inspection information
-- Summary metrics
-- Categorized observations
-- Priority indicators
-- Evidence information
-- Engineering disclaimer
-
-### 📊 7. CSV Inspection Data Export
-
-Structured inspection observations can be exported to CSV for use with:
-
-- Microsoft Excel
-- Google Sheets
-- BIM workflows
-- Project-management databases
-
-The export contains 11 standardized inspection fields and safely handles commas, quotation marks, and multiline text.
-
-### 🖼️ 8. Historical Source Image Viewing
-
-Historical inspections can restore cached source-image information when available, including:
-
-- Original image bytes
-- Image MIME type
-- Original filename
-- Historical inspection context
-
-If an image is unavailable, the application gracefully falls back to the stored inspection information.
-
-### 🔐 9. Authentication
-
-The application includes a protected login system with:
-
-- Streamlit Secrets-based credentials
-- Session authentication
-- Admin user indicator
-- Logout functionality
-- Protected application interface
+### Workshop External Action: Email Notifications (Gmail SMTP)
+- **One-Click Email Dispatch**: Directly dispatch a formal inspection alert containing inspection ID, site activity, executive summary, observation breakdown, risk priorities, physical verification needs, and engineering notices.
+- **Zero External Dependencies**: Implemented strictly using Python's built-in `smtplib` and `email` modules.
+- **Secure Credentials Handling**: Reads `GMAIL_ADDRESS` and `GMAIL_APP_PASSWORD` from `.streamlit/secrets.toml` or Streamlit Community Cloud Secrets; never hard-coded.
+- **Interactive UI**: Expandable email form allows users to enter the recipient address, with in-app credentials input fallback if secrets are not yet configured.
+- **Deterministic & Offline**: 100% local formatting after inspection generation — zero extra Gemini API calls.
+- **Graceful Error Handling**: Validates email format and provides clear error feedback on missing credentials, bad addresses, or SMTP network/auth failures.
 
 ---
 
 ## 🏛️ System Architecture
 
-```text
-Construction Site Image
-          │
-          ▼
-┌──────────────────────────────┐
-│     Streamlit Web App        │
-│ Image Upload • Preview • UI  │
-└──────────────┬───────────────┘
-               │
-               ▼
-┌──────────────────────────────┐
-│     Google GenAI SDK         │
-│      Gemini Vision Models    │
-└──────────────┬───────────────┘
-               │
-               ▼
-┌──────────────────────────────┐
-│ Structured Inspection Engine │
-│ Categories • Evidence • Risk │
-└──────────────┬───────────────┘
-               │
-       ┌───────┴────────┐
-       ▼                ▼
-┌──────────────┐  ┌──────────────┐
-│ SQLite Store │  │ Report Engine│
-│ Inspection   │  │ PDF / CSV    │
-│ History      │  │ Export       │
-└──────────────┘  └──────────────┘
 ```
-
----
-
-## 🧠 AI Inspection Workflow
-
-```text
-Upload Construction Image
-          ↓
-Validate Image
-          ↓
-Gemini Vision Analysis
-          ↓
-Structured Observation Extraction
-          ↓
-Evidence & Confidence Validation
-          ↓
-Risk Priority Classification
-          ↓
-Inspection Record Creation
-          ↓
-SQLite Persistence
-          ↓
-Interactive Dashboard
-          ↓
-PDF / CSV / Summary Export
+[Construction Site Image] (JPG, PNG, WEBP)
+            │
+            ▼
+ ┌─────────────────────────────────────────┐
+ │        Streamlit Web Application        │
+ │  (Image preview, interactive chat, UI)  │
+ └─────────────────────────────────────────┘
+            │
+            ▼
+ ┌─────────────────────────────────────────┐
+ │    Official Google GenAI Python SDK     │
+ │  Primary:  gemini-3.7-flash             │
+ │  Fallback: gemini-3.6-flash (on 503)    │
+ └─────────────────────────────────────────┘
+            │
+            ▼
+ ┌─────────────────────────────────────────┐
+ │    Phase 2 Structured Schema Pipeline   │
+ │   - Controlled 9-category inspection    │
+ │   - Evidence boundary enforcement       │
+ │   - Risk priority classification        │
+ │   - Observation record cards & metrics  │
+ └─────────────────────────────────────────┘
+            │
+            ▼
+ ┌─────────────────────────────────────────┐
+ │  Phase 3 History & Comparison Pipeline  │
+ │   - In-memory inspection history (3A)   │
+ │   - Side-by-side delta comparison (3B)  │
+ │   - Local report representation (3C)    │
+ │   - One-click PDF export engine (3D)    │
+ └─────────────────────────────────────────┘
+            │
+            ▼
+ ┌─────────────────────────────────────────┐
+ │   Persistent SQLite Storage Layer       │
+ │   - Local sqlite3 database (storage.py) │
+ │   - Zero Gemini footprint guarantee     │
+ │   - Duplicate ID protection             │
+ │   - One-to-many normalized schema       │
+ └─────────────────────────────────────────┘
+            │
+            ├─────────► [Download: PDF Report / CSV Data / TXT Summary]
+            │
+            └─────────► [External Action: Email Notification via Gmail SMTP]
 ```
-
----
-
-## 🛠️ Technology Stack
-
-| Component | Technology |
-|---|---|
-| Frontend / UI | Streamlit |
-| AI / Vision | Google Gemini |
-| SDK | Google GenAI Python SDK |
-| Programming Language | Python |
-| Database | SQLite |
-| Image Processing | Pillow |
-| PDF Generation | ReportLab |
-| Data Export | Python CSV |
-| Testing | Python Automated Test Suite |
-| Deployment | Streamlit Community Cloud |
-| Source Control | Git / GitHub |
 
 ---
 
 ## 📁 Project Structure
 
-```text
-CivilVision-AI/
-│
-├── app.py
-├── schema.py
-├── storage.py
-├── prompts.py
-├── test_confidence_system.py
-├── requirements.txt
-├── README.md
-├── .gitignore
-│
-└── .streamlit/
-    ├── config.toml
-    └── secrets.toml.example
 ```
-
-### Main Files
-
-| File | Purpose |
-|---|---|
-| `app.py` | Streamlit UI, authentication, image workflow, dashboard, history, and report controls |
-| `schema.py` | Inspection data models, structured observations, comparison, PDF generation, and CSV export |
-| `storage.py` | SQLite persistence and inspection database operations |
-| `prompts.py` | AI inspection and conversational prompts |
-| `test_confidence_system.py` | Automated regression and feature tests |
-| `requirements.txt` | Python dependencies |
+CivilVision-AI/
+├── app.py                     # Streamlit application UI, sidebar history, email action & orchestration
+├── schema.py                  # Data models, comparison, report representation, CSV, PDF & email dispatch
+├── storage.py                 # Local SQLite persistence engine, schema migrations & CRUD operations
+├── prompts.py                 # System instructions, structured inspection & chat prompts
+├── test_confidence_system.py  # 165 automated regression tests (100% deterministic & offline)
+├── requirements.txt           # Application dependencies (streamlit, google-genai, pillow, reportlab)
+├── README.md                  # Comprehensive technical documentation across all phases
+├── .gitignore                 # Secrets, local database, and environment exclusions
+└── .streamlit/
+    ├── config.toml            # UI styling and dark theme configuration
+    └── secrets.toml.example   # Template for Gemini API and Gmail credentials
+```
 
 ---
 
-## ⚙️ Local Development
+## 🚀 Getting Started
 
-### Prerequisites
-
+### 1. Prerequisites
 - Python 3.10+
-- Google Gemini API key
-- Git
+- Google Gemini API Key (from [Google AI Studio](https://aistudio.google.com/))
+- (Optional for Email Action) Gmail Account with an [App Password](https://myaccount.google.com/apppasswords)
 
-### Clone the Repository
-
-```bash
-git clone https://github.com/Goutham0104/CivilVision-AI.git
-cd CivilVision-AI
-```
-
-### Install Dependencies
-
+### 2. Install Dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-### Configure Secrets
-
-For local development, create:
-
-```text
-.streamlit/secrets.toml
-```
-
-Example:
-
-```toml
-GEMINI_API_KEY = "your_api_key"
-ADMIN_USERNAME = "admin"
-ADMIN_PASSWORD = "your_password"
-```
-
-**Never commit `secrets.toml` to GitHub.**
-
-The repository contains `secrets.toml.example` as a configuration template.
-
----
-
-## ▶️ Run Locally
-
-Start the application with:
-
+### 3. Configure Secrets (Optional / Recommended)
+Copy `.streamlit/secrets.toml.example` to `.streamlit/secrets.toml`:
 ```bash
-streamlit run app.py
+cp .streamlit/secrets.toml.example .streamlit/secrets.toml
+```
+Configure your keys:
+```toml
+GEMINI_API_KEY = "your_gemini_api_key_here"
+ADMIN_USERNAME = "admin"
+ADMIN_PASSWORD = "CivilVision2026!"
+
+# External Email Action
+GMAIL_ADDRESS = "your_email@gmail.com"
+GMAIL_APP_PASSWORD = "your_16_char_app_password"
 ```
 
-Streamlit will provide a local development address when the application is running on your computer.
-
-For the deployed application, use the **Live Demo** link at the top of this README.
-
----
-
-## 🧪 Testing & Verification
-
-The project includes automated tests covering:
-
-- Core AI inspection functionality
-- Structured observations
-- Confidence and evidence handling
-- Inspection history
-- Inspection comparison
-- PDF generation
-- SQLite persistence
-- CSV export
-- Historical image viewing
-- Authentication
-- Reliability and workflow hardening
-
-### Final Verification
-
-The final verification confirmed:
-
-- **158/158 automated tests passed**
-- Python bytecode compilation completed successfully
-- Streamlit `AppTest` health check completed successfully
-- No runtime exceptions during the initial application render
-
-Run the complete test suite with:
-
+### 4. Run Automated Regression Test Suite
+The complete regression test suite covers 165 tests across Phases 1, 2, 3A, 3B, 3C, 3D, 4A, 4B, Reliability Hardening, Local SQLite Persistence, Structured CSV Export, Login Auth, and Workshop Email Dispatch:
 ```bash
 python test_confidence_system.py
 ```
 
-Run the compilation check with:
-
+### 5. Launch Application
 ```bash
-python -m py_compile app.py schema.py storage.py prompts.py test_confidence_system.py
+streamlit run app.py
 ```
+Open your browser at `http://localhost:8501`.
 
 ---
 
-## 🔐 Security
+## ⚠️ Civil Engineering & Safety Disclaimers
 
-Sensitive credentials are not stored in the public source code.
+> **IMPORTANT NOTICE:**
+> CivilVision AI is designed as an educational assistant and preliminary visual screening tool for construction sites.
+> 1. **Visual Limitations**: 2D photographs cannot reveal internal concrete compaction, rebar yield strength, subsurface soil bearing capacity, or subterranean utilities.
+> 2. **No Code Certification**: Visual analysis does NOT constitute a structural engineering sign-off, building code compliance certificate, or official safety permit.
+> 3. **Mandatory Physical Verification**: Any observation or potential concern flagged by this tool must be independently verified on-site by a licensed Professional Engineer (PE) or certified safety inspector using calibrated physical testing methods (e.g., rebound hammer, cover meter, slump test, ultrasonic pulse velocity).
 
-Deployment credentials should be configured through **Streamlit Secrets**.
-
-The following file should never be committed:
-
-```text
-.streamlit/secrets.toml
-```
-
-API keys should never be published in:
-
-- GitHub source code
-- README files
-- Screenshots
-- Public documentation
-
-> **Demo credential note:** The credentials listed above are intentionally provided for accessing the public demonstration application. Do not reuse them for any sensitive or production system.
-
----
-
-## 📊 Engineering Safety & Limitations
-
-CivilVision AI is an **educational assistant and preliminary visual screening tool**.
-
-A photograph cannot reliably determine several engineering properties, including:
-
-- Concrete compressive strength
-- Reinforcement diameter
-- Reinforcement cover
-- Internal structural defects
-- Subsurface conditions
-- Load capacity
-- Foundation performance
-- Structural anchorage
-- Complete code compliance
-
-AI-generated observations must therefore be independently verified through appropriate physical inspection and engineering procedures.
-
-CivilVision AI does **not** provide:
-
-- Structural engineering certification
-- Building-code certification
-- Safety permits
-- Professional engineering sign-off
-
----
-
-## 🎯 Intended Users
-
-CivilVision AI is intended to support:
-
-- Civil engineering students
-- Construction-site trainees
-- Site supervisors
-- Inspection personnel
-- Project managers
-- Engineering educators
-- Construction technology researchers
-
----
-
-## 🚧 Project Status
-
-**Status: Deployed and Functional**
-
-Current capabilities include:
-
-- AI-powered visual inspection
-- Structured construction observations
-- Evidence and confidence classification
-- Inspection history
-- SQLite persistence
-- Inspection comparison
-- PDF report generation
-- CSV data export
-- Historical source-image viewing
-- Authentication
-- Streamlit Cloud deployment
-
----
-
-## 👨‍💻 Repository & Demo
-
-**GitHub Repository:**  
-https://github.com/Goutham0104/CivilVision-AI
-
-**Live Demo:**  
-https://civilvision-ai-uthwmqib2x7dqdus2czctr.streamlit.app/
-
----
-
-## ⚠️ Disclaimer
-
-CivilVision AI provides AI-assisted visual screening based on available image evidence. It should not be treated as a substitute for qualified civil or structural engineering judgment, physical testing, site inspection, or applicable standards and regulations.
-
-Any potentially unsafe condition identified by the system should be physically verified by an appropriately qualified professional.

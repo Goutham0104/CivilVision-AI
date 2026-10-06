@@ -46,6 +46,8 @@ from schema import (
     select_historical_inspection,
     get_current_inspection,
     export_inspection_to_csv,
+    send_inspection_email,
+    is_valid_email,
 )
 from storage import (
     initialize_database,
@@ -256,6 +258,26 @@ def get_auth_credentials() -> Tuple[str, str]:
     except Exception:
         pass
     return user, passwd
+
+
+def get_email_credentials() -> Tuple[Optional[str], Optional[str]]:
+    """Retrieve Gmail credentials from Streamlit secrets or environment variables."""
+    sender_email = None
+    app_password = None
+    try:
+        if "GMAIL_ADDRESS" in st.secrets and st.secrets["GMAIL_ADDRESS"]:
+            sender_email = str(st.secrets["GMAIL_ADDRESS"]).strip()
+        if "GMAIL_APP_PASSWORD" in st.secrets and st.secrets["GMAIL_APP_PASSWORD"]:
+            app_password = str(st.secrets["GMAIL_APP_PASSWORD"]).strip()
+    except Exception:
+        pass
+
+    if not sender_email:
+        sender_email = os.environ.get("GMAIL_ADDRESS")
+    if not app_password:
+        app_password = os.environ.get("GMAIL_APP_PASSWORD")
+
+    return sender_email, app_password
 
 
 def verify_login_credentials(input_user: str, input_pass: str) -> bool:
@@ -1362,6 +1384,73 @@ with col_left:
                     except Exception as csv_err:
                         st.error(f"⚠️ Error generating CSV data: {csv_err}")
 
+                # External Action: Send Inspection Report via Email (Gmail SMTP)
+                st.markdown("---")
+                with st.expander("📧 **External Action: Send Inspection Report via Email**", expanded=False):
+                    st.caption(
+                        "Dispatch a formal inspection alert with observations, risk priorities, and physical verification requirements directly to site supervisors or engineers."
+                    )
+                    cfg_sender, cfg_pwd = get_email_credentials()
+                    if not cfg_sender or not cfg_pwd:
+                        st.info(
+                            "💡 Gmail credentials not detected in secrets. You can configure `GMAIL_ADDRESS` and `GMAIL_APP_PASSWORD` "
+                            "in `.streamlit/secrets.toml` or provide them below."
+                        )
+
+                    email_form_key = f"email_form_{rep_repr.inspection_id}"
+                    with st.form(key=email_form_key):
+                        recip_email = st.text_input(
+                            "Recipient Email Address",
+                            placeholder="supervisor@site-engineering.com",
+                            key=f"email_recip_{rep_repr.inspection_id}",
+                        )
+                        custom_sender = cfg_sender
+                        custom_pwd = cfg_pwd
+                        if not cfg_sender or not cfg_pwd:
+                            cred_c1, cred_c2 = st.columns(2)
+                            with cred_c1:
+                                custom_sender = st.text_input(
+                                    "Sender Gmail Address",
+                                    value=cfg_sender or "",
+                                    placeholder="your_email@gmail.com",
+                                    key=f"email_sender_{rep_repr.inspection_id}",
+                                )
+                            with cred_c2:
+                                custom_pwd = st.text_input(
+                                    "Google App Password (16-char)",
+                                    type="password",
+                                    value=cfg_pwd or "",
+                                    help="Generate via Google Account -> Security -> 2-Step Verification -> App passwords",
+                                    key=f"email_pwd_{rep_repr.inspection_id}",
+                                )
+
+                        btn_send_email = st.form_submit_button(
+                            "🚀 Send Inspection Report",
+                            type="secondary",
+                            use_container_width=True,
+                        )
+
+                        if btn_send_email:
+                            if not recip_email or not recip_email.strip():
+                                st.error("⚠️ Please specify a recipient email address.")
+                            elif not is_valid_email(recip_email):
+                                st.error(f"⚠️ '{recip_email}' is not a valid email address.")
+                            elif not custom_sender or not custom_pwd:
+                                st.error("⚠️ Sender Gmail address and App Password are required to dispatch email.")
+                            else:
+                                with st.spinner("Dispatching inspection report via SMTP..."):
+                                    ok, msg = send_inspection_email(
+                                        record=active_rec,
+                                        recipient_email=recip_email.strip(),
+                                        sender_email=custom_sender.strip(),
+                                        sender_password=custom_pwd.strip(),
+                                    )
+                                    if ok:
+                                        st.success(f"✅ {msg}")
+                                    else:
+                                        st.error(f"❌ {msg}")
+
+
     elif st.session_state.get("analysis_result"):
         st.markdown("---")
         st.markdown("### 📋 Initial Visual Inspection Assessment")
@@ -1498,69 +1587,73 @@ with col_right:
         prompt_to_process = user_input
 
     if prompt_to_process:
-        if not st.session_state.image_bytes:
-            st.warning("⚠️ Please upload a construction site photograph first.")
+        api_key = get_api_key()
+        if not api_key:
+            st.error("❌ Google Gemini API Key required.")
         else:
-            api_key = get_api_key()
-            if not api_key:
-                st.error("❌ Google Gemini API Key required.")
-            else:
-                # Add user message to state
-                st.session_state.chat_history.append({"role": "user", "content": prompt_to_process})
-                
-                # Call Gemini with image and conversation context
-                with st.spinner("CivilVision AI is thinking..."):
-                    try:
-                        from google import genai
-                        from google.genai import types
+            # Add user message to state
+            st.session_state.chat_history.append({"role": "user", "content": prompt_to_process})
+            
+            # Call Gemini with conversation context (and image if uploaded)
+            with st.spinner("CivilVision AI is thinking..."):
+                try:
+                    from google import genai
+                    from google.genai import types
 
-                        client = init_genai_client(api_key)
-                        if client:
+                    client = init_genai_client(api_key)
+                    if client:
+                        has_image = bool(st.session_state.image_bytes)
+                        contents = []
+                        if has_image:
                             image_part = types.Part.from_bytes(
                                 data=st.session_state.image_bytes,
                                 mime_type=st.session_state.image_mime,
                             )
-                            
-                            # Construct context-rich prompt
-                            chat_wrapper = build_chat_prompt(
-                                prompt_to_process,
-                                has_prior_analysis=bool(st.session_state.analysis_result),
-                            )
-                            
-                            # Include previous conversation snippets for multi-turn awareness (pure user/assistant text)
-                            history_context = ""
-                            qa_history = [
-                                m for m in st.session_state.chat_history[:-1]
-                                if not (m["role"] == "assistant" and "Visual Inspection Assessment Completed" in m["content"])
-                            ]
-                            if qa_history:
-                                history_context = "\n\nRecent Conversation History:\n"
-                                for prev in qa_history[-6:]:
-                                    history_context += f"- {prev['role'].capitalize()}: {prev['content']}\n"
+                            contents.append(image_part)
+                        
+                        # Construct context-rich prompt
+                        chat_wrapper = build_chat_prompt(
+                            prompt_to_process,
+                            has_prior_analysis=bool(st.session_state.analysis_result),
+                            has_image=has_image,
+                        )
+                        
+                        # Include previous conversation snippets for multi-turn awareness (pure user/assistant text)
+                        history_context = ""
+                        qa_history = [
+                            m for m in st.session_state.chat_history[:-1]
+                            if not (m["role"] == "assistant" and "Visual Inspection Assessment Completed" in m["content"])
+                        ]
+                        if qa_history:
+                            history_context = "\n\nRecent Conversation History:\n"
+                            for prev in qa_history[-6:]:
+                                history_context += f"- {prev['role'].capitalize()}: {prev['content']}\n"
 
-                            full_prompt = f"{chat_wrapper}\n{history_context}"
+                        full_prompt = f"{chat_wrapper}\n{history_context}"
+                        contents.append(full_prompt)
 
-                            response_text, used_fallback, fallback_notice = generate_content_with_retry_and_fallback(
-                                client=client,
-                                model=selected_model,
-                                contents=[image_part, full_prompt],
-                                config=types.GenerateContentConfig(
-                                    system_instruction=SYSTEM_INSTRUCTION,
-                                    temperature=0.2,
-                                ),
-                                api_key=api_key,
-                            )
-                            
-                            # Append assistant message (pure model text, NEVER injected with fallback notice)
-                            st.session_state.chat_history.append(
-                                {"role": "assistant", "content": response_text}
-                            )
-                            if used_fallback:
-                                st.session_state.last_chat_fallback = fallback_notice
-                            else:
-                                st.session_state.last_chat_fallback = None
-                            st.rerun()
-                    except Exception as e:
+                        response_text, used_fallback, fallback_notice = generate_content_with_retry_and_fallback(
+                            client=client,
+                            model=selected_model,
+                            contents=contents,
+                            config=types.GenerateContentConfig(
+                                system_instruction=SYSTEM_INSTRUCTION,
+                                temperature=0.2,
+                            ),
+                            api_key=api_key,
+                        )
+                        
+                        # Append assistant message (pure model text, NEVER injected with fallback notice)
+                        st.session_state.chat_history.append(
+                            {"role": "assistant", "content": response_text}
+                        )
+                        if used_fallback:
+                            st.session_state.last_chat_fallback = fallback_notice
+                        else:
+                            st.session_state.last_chat_fallback = None
+                        st.rerun()
+                except Exception as e:
+
                         if st.session_state.chat_history and st.session_state.chat_history[-1]["role"] == "user":
                             st.session_state.chat_history.pop()
                         err_msg = str(e)
