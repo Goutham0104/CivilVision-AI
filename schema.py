@@ -1353,11 +1353,12 @@ def send_inspection_email(
     sender_email: Optional[str] = None,
     sender_password: Optional[str] = None,
     smtp_host: str = "smtp.gmail.com",
-    smtp_port: int = 465,
+    smtp_port: int = 587,
     timeout: int = 15,
 ) -> Tuple[bool, str]:
     """
     Sends an inspection summary via Gmail SMTP using Python's built-in smtplib and email modules.
+    Uses smtp.gmail.com:587 with STARTTLS as the primary method, with port 465 SSL as fallback.
     Handles missing secrets, invalid email addresses, SMTP failures, and empty inspection data gracefully.
     Does NOT make any Gemini calls.
     """
@@ -1399,18 +1400,46 @@ def send_inspection_email(
         msg["To"] = recipient
         msg.set_content(body)
 
-        # 5. Dispatch via SMTP_SSL (port 465) or standard STARTTLS (port 587)
-        if smtp_port == 465:
-            with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=timeout) as server:
-                server.login(sender, password)
-                server.send_message(msg)
-        else:
-            with smtplib.SMTP(smtp_host, smtp_port, timeout=timeout) as server:
+        def _dispatch_starttls(host: str, port: int) -> None:
+            with smtplib.SMTP(host, port, timeout=timeout) as server:
                 server.ehlo()
                 server.starttls()
                 server.ehlo()
                 server.login(sender, password)
                 server.send_message(msg)
+
+        def _dispatch_ssl(host: str, port: int) -> None:
+            with smtplib.SMTP_SSL(host, port, timeout=timeout) as server:
+                server.login(sender, password)
+                server.send_message(msg)
+
+        # 5. Dispatch: Primary STARTTLS (587) with SSL (465) fallback
+        if smtp_port == 587:
+            try:
+                _dispatch_starttls(smtp_host, 587)
+            except smtplib.SMTPAuthenticationError:
+                raise
+            except Exception as primary_err:
+                # Fallback to SSL port 465 if primary connection/transmission fails
+                try:
+                    _dispatch_ssl(smtp_host, 465)
+                except Exception:
+                    # Raise primary error to preserve diagnostic details
+                    raise primary_err
+        elif smtp_port == 465:
+            try:
+                _dispatch_ssl(smtp_host, 465)
+            except smtplib.SMTPAuthenticationError:
+                raise
+            except Exception as primary_err:
+                # Fallback to STARTTLS port 587 if SSL fails
+                try:
+                    _dispatch_starttls(smtp_host, 587)
+                except Exception:
+                    raise primary_err
+        else:
+            # Custom port specified by caller
+            _dispatch_starttls(smtp_host, smtp_port)
 
         return True, f"Inspection report successfully emailed to {recipient}!"
 

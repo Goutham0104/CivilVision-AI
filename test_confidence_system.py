@@ -7,6 +7,8 @@ import re
 import os
 import tempfile
 import inspect
+import unittest
+from unittest.mock import patch
 import prompts
 import app
 import schema
@@ -2431,6 +2433,52 @@ def run_tests():
     assert "Send Inspection Report" in app_src
     assert "Recipient Email Address" in app_src
     print("EMAIL.7. app.py email action UI and credentials wiring verified: PASSED")
+
+    # EMAIL.8: Default port is 587 (STARTTLS primary)
+    sig = inspect.signature(schema.send_inspection_email)
+    assert sig.parameters["smtp_port"].default == 587
+    print("EMAIL.8. Default SMTP port is 587 (STARTTLS primary): PASSED")
+
+    # EMAIL.9: Mock test for primary STARTTLS dispatch via port 587
+    with unittest.mock.patch("smtplib.SMTP") as mock_smtp, \
+         unittest.mock.patch("smtplib.SMTP_SSL") as mock_smtp_ssl:
+        mock_instance = mock_smtp.return_value.__enter__.return_value
+        ok, msg = schema.send_inspection_email(
+            record=dummy_rec,
+            recipient_email="supervisor@site.com",
+            sender_email="demo@gmail.com",
+            sender_password="app_password_mock",
+        )
+        assert ok is True
+        assert "successfully emailed" in msg
+        mock_smtp.assert_called_once_with("smtp.gmail.com", 587, timeout=15)
+        mock_instance.ehlo.assert_called()
+        mock_instance.starttls.assert_called_once()
+        mock_instance.login.assert_called_once_with("demo@gmail.com", "app_password_mock")
+        mock_instance.send_message.assert_called_once()
+        mock_smtp_ssl.assert_not_called()
+    print("EMAIL.9. Primary STARTTLS on port 587 dispatched successfully: PASSED")
+
+    # EMAIL.10: Mock test for fallback to port 465 SSL when port 587 connection/transmission fails
+    with unittest.mock.patch("smtplib.SMTP") as mock_smtp, \
+         unittest.mock.patch("smtplib.SMTP_SSL") as mock_smtp_ssl:
+        # Simulate STARTTLS failing (e.g., connection unexpectedly closed or network block)
+        mock_smtp.side_effect = ConnectionResetError("Connection unexpectedly closed")
+        mock_ssl_instance = mock_smtp_ssl.return_value.__enter__.return_value
+        ok, msg = schema.send_inspection_email(
+            record=dummy_rec,
+            recipient_email="supervisor@site.com",
+            sender_email="demo@gmail.com",
+            sender_password="app_password_mock",
+            smtp_port=587,
+        )
+        assert ok is True
+        assert "successfully emailed" in msg
+        mock_smtp.assert_called_once_with("smtp.gmail.com", 587, timeout=15)
+        mock_smtp_ssl.assert_called_once_with("smtp.gmail.com", 465, timeout=15)
+        mock_ssl_instance.login.assert_called_once_with("demo@gmail.com", "app_password_mock")
+        mock_ssl_instance.send_message.assert_called_once()
+    print("EMAIL.10. Graceful fallback to SSL on port 465 when STARTTLS 587 fails: PASSED")
 
     # =========================================================
     # PART 15: TEXT-ONLY CONSTRUCTION QUERY TESTS
