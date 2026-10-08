@@ -1350,6 +1350,7 @@ def format_inspection_email_body(record: InspectionRecord) -> Tuple[str, str]:
 def send_inspection_email(
     record: InspectionRecord,
     recipient_email: str,
+    api_key: Optional[str] = None,
     sender_email: Optional[str] = None,
     sender_password: Optional[str] = None,
     smtp_host: str = "smtp.gmail.com",
@@ -1357,12 +1358,17 @@ def send_inspection_email(
     timeout: int = 15,
 ) -> Tuple[bool, str]:
     """
-    Sends an inspection summary via Gmail SMTP using Python's built-in smtplib and email modules.
-    Uses smtp.gmail.com:587 with STARTTLS as the primary method, with port 465 SSL as fallback.
-    Handles missing secrets, invalid email addresses, SMTP failures, and empty inspection data gracefully.
-    Does NOT make any Gemini calls.
+    Sends an inspection summary via a reliable Email API (Resend HTTPS API) or SMTP fallback.
+    - User provides only recipient_email in the UI.
+    - API key and verified sender address are sourced securely from Streamlit secrets / environment.
+    - Zero external library dependencies required (uses standard library urllib.request + json).
+    - Works reliably in public cloud environments (Streamlit Community Cloud, containers)
+      where outbound SMTP ports 587/465 are frequently blocked or throttled by cloud hosts/ISPs.
+    - Does NOT make any Gemini calls.
     """
-    import smtplib
+    import json
+    import urllib.error
+    import urllib.request
     from email.message import EmailMessage
 
     # 1. Validate inspection data
@@ -1376,86 +1382,120 @@ def send_inspection_email(
     if not is_valid_email(recipient):
         return False, f"Invalid recipient email address format: '{recipient}'."
 
-    # 3. Validate sender credentials
+    # Format inspection subject and plain text body
+    subject, body = format_inspection_email_body(record)
+
+    api_token = (api_key or "").strip()
     sender = (sender_email or "").strip()
     password = (sender_password or "").strip()
 
-    if not sender or not password:
-        return (
-            False,
-            "Gmail credentials are not configured. Please add GMAIL_ADDRESS and GMAIL_APP_PASSWORD "
-            "to .streamlit/secrets.toml or Streamlit Community Cloud Secrets.",
+    # 3. Path A: Resend HTTPS API (Reliable for Streamlit Cloud & public networks)
+    if api_token:
+        from_address = sender if (sender and is_valid_email(sender)) else "CivilVision AI <onboarding@resend.dev>"
+        payload = {
+            "from": from_address,
+            "to": [recipient],
+            "subject": subject,
+            "text": body,
+        }
+        req_data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            "https://api.resend.com/emails",
+            data=req_data,
+            headers={
+                "Authorization": f"Bearer {api_token}",
+                "Content-Type": "application/json",
+                "User-Agent": "CivilVision-AI/1.0",
+            },
+            method="POST",
         )
-
-    if not is_valid_email(sender):
-        return False, f"Configured sender email address is invalid: '{sender}'."
-
-    # 4. Build message
-    try:
-        subject, body = format_inspection_email_body(record)
-
-        msg = EmailMessage()
-        msg["Subject"] = subject
-        msg["From"] = sender
-        msg["To"] = recipient
-        msg.set_content(body)
-
-        def _dispatch_starttls(host: str, port: int) -> None:
-            with smtplib.SMTP(host, port, timeout=timeout) as server:
-                server.ehlo()
-                server.starttls()
-                server.ehlo()
-                server.login(sender, password)
-                server.send_message(msg)
-
-        def _dispatch_ssl(host: str, port: int) -> None:
-            with smtplib.SMTP_SSL(host, port, timeout=timeout) as server:
-                server.login(sender, password)
-                server.send_message(msg)
-
-        # 5. Dispatch: Primary STARTTLS (587) with SSL (465) fallback
-        if smtp_port == 587:
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                if 200 <= response.status < 300:
+                    return True, f"Inspection report successfully emailed to {recipient}!"
+                return False, f"Email API error: HTTP status {response.status}"
+        except urllib.error.HTTPError as e:
             try:
-                _dispatch_starttls(smtp_host, 587)
-            except smtplib.SMTPAuthenticationError:
-                raise
-            except Exception as primary_err:
-                # Fallback to SSL port 465 if primary connection/transmission fails
-                try:
-                    _dispatch_ssl(smtp_host, 465)
-                except Exception:
-                    # Raise primary error to preserve diagnostic details
-                    raise primary_err
-        elif smtp_port == 465:
-            try:
-                _dispatch_ssl(smtp_host, 465)
-            except smtplib.SMTPAuthenticationError:
-                raise
-            except Exception as primary_err:
-                # Fallback to STARTTLS port 587 if SSL fails
+                err_resp = json.loads(e.read().decode("utf-8"))
+                err_msg = err_resp.get("message", str(e))
+            except Exception:
+                err_msg = str(e)
+            return False, f"Email API failed ({e.code}): {err_msg}"
+        except urllib.error.URLError as e:
+            return False, f"Email API network error: {e.reason}"
+        except Exception as e:
+            return False, f"Email API dispatch error: {str(e)}"
+
+    # 4. Path B: Fallback to SMTP if SMTP credentials are provided
+    if sender and password:
+        if not is_valid_email(sender):
+            return False, f"Configured sender email address is invalid: '{sender}'."
+
+        try:
+            import smtplib
+
+            msg = EmailMessage()
+            msg["Subject"] = subject
+            msg["From"] = sender
+            msg["To"] = recipient
+            msg.set_content(body)
+
+            def _dispatch_starttls(host: str, port: int) -> None:
+                with smtplib.SMTP(host, port, timeout=timeout) as server:
+                    server.ehlo()
+                    server.starttls()
+                    server.ehlo()
+                    server.login(sender, password)
+                    server.send_message(msg)
+
+            def _dispatch_ssl(host: str, port: int) -> None:
+                with smtplib.SMTP_SSL(host, port, timeout=timeout) as server:
+                    server.login(sender, password)
+                    server.send_message(msg)
+
+            if smtp_port == 587:
                 try:
                     _dispatch_starttls(smtp_host, 587)
-                except Exception:
-                    raise primary_err
-        else:
-            # Custom port specified by caller
-            _dispatch_starttls(smtp_host, smtp_port)
+                except smtplib.SMTPAuthenticationError:
+                    raise
+                except Exception as primary_err:
+                    try:
+                        _dispatch_ssl(smtp_host, 465)
+                    except Exception:
+                        raise primary_err
+            elif smtp_port == 465:
+                try:
+                    _dispatch_ssl(smtp_host, 465)
+                except smtplib.SMTPAuthenticationError:
+                    raise
+                except Exception as primary_err:
+                    try:
+                        _dispatch_starttls(smtp_host, 587)
+                    except Exception:
+                        raise primary_err
+            else:
+                _dispatch_starttls(smtp_host, smtp_port)
 
-        return True, f"Inspection report successfully emailed to {recipient}!"
+            return True, f"Inspection report successfully emailed to {recipient}!"
 
-    except smtplib.SMTPAuthenticationError:
-        return (
-            False,
-            "SMTP Authentication failed. Please verify that GMAIL_ADDRESS and GMAIL_APP_PASSWORD "
-            "are correct. Make sure to use a 16-character Google App Password (not your primary password).",
-        )
-    except smtplib.SMTPConnectError as e:
-        return False, f"Failed to connect to SMTP server ({smtp_host}:{smtp_port}): {e}"
-    except smtplib.SMTPRecipientsRefused:
-        return False, f"Recipient email address was refused by server: {recipient}"
-    except (smtplib.SMTPException, OSError, TimeoutError) as e:
-        return False, f"SMTP delivery error: {str(e)}"
-    except Exception as e:
-        return False, f"Unexpected error dispatching email: {str(e)}"
+        except smtplib.SMTPAuthenticationError:
+            return (
+                False,
+                "SMTP Authentication failed. Please verify that GMAIL_ADDRESS and GMAIL_APP_PASSWORD "
+                "are correct. Make sure to use a 16-character Google App Password (not your primary password).",
+            )
+        except smtplib.SMTPConnectError as e:
+            return False, f"Failed to connect to SMTP server ({smtp_host}:{smtp_port}): {e}"
+        except smtplib.SMTPRecipientsRefused:
+            return False, f"Recipient email address was refused by server: {recipient}"
+        except (smtplib.SMTPException, OSError, TimeoutError) as e:
+            return False, f"SMTP delivery error: {str(e)}"
+        except Exception as e:
+            return False, f"Unexpected error dispatching email: {str(e)}"
 
-
+    # If neither API key nor complete SMTP credentials were provided
+    return (
+        False,
+        "Email service is not configured. Please add RESEND_API_KEY (recommended) or "
+        "GMAIL_ADDRESS and GMAIL_APP_PASSWORD to .streamlit/secrets.toml or Streamlit Community Cloud Secrets.",
+    )

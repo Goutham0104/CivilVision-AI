@@ -102,13 +102,15 @@
 - **RFC 4180 Escaping**: Safely handles commas, double quotes, and multi-line strings in observation text using Python's standard `csv` library.
 - **Zero API Footprint**: Operates 100% locally from active and historical structured inspection records with zero Gemini or network calls.
 
-### Workshop External Action: Email Notifications (Gmail SMTP)
+### Workshop External Action: Email Notifications (Resend API & SMTP Fallback)
 - **One-Click Email Dispatch**: Directly dispatch a formal inspection alert containing inspection ID, site activity, executive summary, observation breakdown, risk priorities, physical verification needs, and engineering notices.
-- **Zero External Dependencies**: Implemented strictly using Python's built-in `smtplib` and `email` modules.
-- **Secure Credentials Handling**: Reads `GMAIL_ADDRESS` and `GMAIL_APP_PASSWORD` from `.streamlit/secrets.toml` or Streamlit Community Cloud Secrets; never hard-coded.
-- **Interactive UI**: Expandable email form allows users to enter the recipient address, with in-app credentials input fallback if secrets are not yet configured.
+- **Reliable Public Cloud HTTPS API**: Uses the Resend HTTPS API (`api.resend.com/emails`) via Python's standard library `urllib` — completely immune to port 587/465 blocks, timeouts, or socket drops on Streamlit Cloud and public container hosts.
+- **Zero External Dependencies**: Implemented strictly using Python's built-in `urllib.request`, `json`, and standard libraries without bulky third-party SDKs.
+- **Secure Credentials Handling**: Reads `RESEND_API_KEY` (and optional `RESEND_FROM_EMAIL` or fallback `GMAIL_ADDRESS`/`GMAIL_APP_PASSWORD`) from `.streamlit/secrets.toml` or Streamlit Community Cloud Secrets; credentials remain private and are never exposed.
+- **Public User Experience**: End-users simply enter the recipient email address — no configuration needed by general viewers.
 - **Deterministic & Offline**: 100% local formatting after inspection generation — zero extra Gemini API calls.
-- **Graceful Error Handling**: Validates email format and provides clear error feedback on missing credentials, bad addresses, or SMTP network/auth failures.
+- **Graceful Error Handling**: Validates email format and provides clear error feedback on missing credentials, bad addresses, or HTTP/API delivery failures.
+
 
 ---
 
@@ -159,7 +161,7 @@
             │
             ├─────────► [Download: PDF Report / CSV Data / TXT Summary]
             │
-            └─────────► [External Action: Email Notification via Gmail SMTP]
+            └─────────► [External Action: Email Notification via Resend API / SMTP]
 ```
 
 ---
@@ -206,13 +208,17 @@ GEMINI_API_KEY = "your_gemini_api_key_here"
 ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD = "CivilVision2026!"
 
-# External Email Action
+# External Email Action (Resend Cloud API - Recommended for Streamlit Cloud)
+RESEND_API_KEY = "re_your_resend_api_key_here"
+RESEND_FROM_EMAIL = "CivilVision AI <onboarding@resend.dev>"
+
+# Optional Fallback: Gmail SMTP
 GMAIL_ADDRESS = "your_email@gmail.com"
 GMAIL_APP_PASSWORD = "your_16_char_app_password"
 ```
 
 ### 4. Run Automated Regression Test Suite
-The complete regression test suite covers 165 tests across Phases 1, 2, 3A, 3B, 3C, 3D, 4A, 4B, Reliability Hardening, Local SQLite Persistence, Structured CSV Export, Login Auth, and Workshop Email Dispatch:
+The complete regression test suite covers 170 tests across Phases 1, 2, 3A, 3B, 3C, 3D, 4A, 4B, Reliability Hardening, Local SQLite Persistence, Structured CSV Export, Login Auth, and Workshop Email Dispatch:
 ```bash
 python test_confidence_system.py
 ```

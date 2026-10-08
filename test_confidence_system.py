@@ -2395,16 +2395,17 @@ def run_tests():
     assert "Invalid recipient" in err
     print("EMAIL.3. Graceful handling of missing record and invalid recipient: PASSED")
 
-    # EMAIL.4: Rejection when Gmail credentials are not configured
+    # EMAIL.4: Rejection when email service credentials are not configured
     ok, err = schema.send_inspection_email(
         record=dummy_rec,
         recipient_email="supervisor@site.com",
+        api_key=None,
         sender_email=None,
         sender_password=None,
     )
     assert ok is False
-    assert "credentials are not configured" in err
-    print("EMAIL.4. Graceful handling of missing Gmail credentials: PASSED")
+    assert "not configured" in err
+    print("EMAIL.4. Graceful handling of missing email credentials: PASSED")
 
     # EMAIL.5: Simulated SMTP authentication / connection error handling without sending real email
     ok, err = schema.send_inspection_email(
@@ -2479,6 +2480,46 @@ def run_tests():
         mock_ssl_instance.login.assert_called_once_with("demo@gmail.com", "app_password_mock")
         mock_ssl_instance.send_message.assert_called_once()
     print("EMAIL.10. Graceful fallback to SSL on port 465 when STARTTLS 587 fails: PASSED")
+
+    # EMAIL.11: Mock test for Resend HTTPS API dispatch
+    with unittest.mock.patch("urllib.request.urlopen") as mock_urlopen:
+        mock_response = unittest.mock.MagicMock()
+        mock_response.status = 200
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+        ok, msg = schema.send_inspection_email(
+            record=dummy_rec,
+            recipient_email="supervisor@site.com",
+            api_key="re_mock_api_token_12345",
+        )
+        assert ok is True
+        assert "successfully emailed to supervisor@site.com" in msg
+        mock_urlopen.assert_called_once()
+        req_arg = mock_urlopen.call_args[0][0]
+        assert req_arg.full_url == "https://api.resend.com/emails"
+        assert req_arg.get_header("Authorization") == "Bearer re_mock_api_token_12345"
+    print("EMAIL.11. Primary Resend HTTPS API dispatched successfully: PASSED")
+
+    # EMAIL.12: Graceful error handling for HTTPError in Email API
+    with unittest.mock.patch("urllib.request.urlopen") as mock_urlopen:
+        import urllib.error
+        import io
+        fp = io.BytesIO(b'{"message": "API key invalid or domain unverified"}')
+        mock_urlopen.side_effect = urllib.error.HTTPError(
+            url="https://api.resend.com/emails",
+            code=403,
+            msg="Forbidden",
+            hdrs={},
+            fp=fp,
+        )
+        ok, msg = schema.send_inspection_email(
+            record=dummy_rec,
+            recipient_email="supervisor@site.com",
+            api_key="re_invalid_token",
+        )
+        assert ok is False
+        assert "403" in msg
+        assert "domain unverified" in msg
+    print("EMAIL.12. Graceful HTTP error handling in Email API without crash: PASSED")
 
     # =========================================================
     # PART 15: TEXT-ONLY CONSTRUCTION QUERY TESTS
